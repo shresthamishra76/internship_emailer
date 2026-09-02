@@ -67,11 +67,11 @@ def _faang_banner(faang: list[Job]) -> str:
     for j in sorted(faang, key=lambda x: (x.company.lower(), x.title.lower())):
         loc = escape(j.location_str) if j.location_str else ""
         items.append(
-            "<li style='margin:4px 0'>"
+            "<li style='margin:6px 0'>"
+            f"<b style='color:#7f1d1d'>{escape(j.company)}</b> — "
             f"<a href='{escape(j.url)}' style='color:#b91c1c;font-weight:700;"
             f"text-decoration:none'>{escape(j.title)}</a>"
-            f"<span style='color:#7f1d1d'> — {escape(j.company)}</span>"
-            + (f"<span style='color:#999;font-size:12px'> · {loc}</span>" if loc else "")
+            + (f"<span style='color:#9f6b6b;font-size:12px'> · {loc}</span>" if loc else "")
             + "</li>"
         )
     return (
@@ -84,44 +84,81 @@ def _faang_banner(faang: list[Job]) -> str:
     )
 
 
+_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+
+
+def by_company(jobs: list[Job]) -> list[tuple[str, list[Job]]]:
+    """Group a category's jobs under their company, companies A-Z."""
+    buckets: dict[str, list[Job]] = {}
+    for j in jobs:
+        buckets.setdefault(j.company, []).append(j)
+    return [
+        (c, sorted(buckets[c], key=lambda x: x.title.lower()))
+        for c in sorted(buckets, key=str.lower)
+    ]
+
+
+def _job_line(j: Job) -> str:
+    """One role: the title is the link, the metadata sits quietly underneath."""
+    meta_bits = [b for b in (j.location_str, j.season, str(j.year) if j.year else None) if b]
+    meta = escape(" · ".join(meta_bits))
+    meta_html = (
+        f"<div style='font:12px {_FONT};color:#64748b;margin-top:2px'>{meta}</div>"
+        if meta else ""
+    )
+    return (
+        "<div style='margin:0 0 10px'>"
+        f"<a href='{escape(j.url)}' style='font:600 14px {_FONT};color:#1d4ed8;"
+        f"text-decoration:none'>{escape(j.title)}</a>"
+        f"{meta_html}"
+        "</div>"
+    )
+
+
 def build_html(grouped: list[tuple[str, list[Job]]], total: int, faang: list[Job] | None = None) -> str:
-    headline = "🚨 FAANG job out now" if faang else "🚀 Daily Internship Digest"
+    headline = "🚨 FAANG job out now" if faang else "🚀 Internship Digest"
     rows = []
     if faang:
         rows.append(_faang_banner(faang))
-    rows.append(
-        f"<p style='font:14px system-ui,sans-serif;color:#444'>"
-        f"<b>{total}</b> new internship posting(s) matched your filters.</p>"
+
+    counts = " · ".join(
+        f"{len(jobs)} {_CATEGORY_LABELS.get(cat, cat).split(' ', 1)[-1]}"
+        for cat, jobs in grouped
     )
+    rows.append(
+        f"<p style='font:14px {_FONT};color:#334155;margin:4px 0 20px'>"
+        f"<b style='color:#0f172a'>{total}</b> new posting(s) — {escape(counts)}</p>"
+    )
+
     for cat, jobs in grouped:
         label = _CATEGORY_LABELS.get(cat, cat)
         rows.append(
-            f"<h2 style='font:600 18px system-ui,sans-serif;color:#111;"
-            f"margin:24px 0 8px;border-bottom:2px solid #eee;padding-bottom:4px'>"
-            f"{escape(label)} ({len(jobs)})</h2>"
+            f"<div style='font:700 13px {_FONT};color:#0f172a;letter-spacing:.06em;"
+            f"text-transform:uppercase;margin:28px 0 10px;padding-bottom:6px;"
+            f"border-bottom:2px solid #0f172a'>{escape(label)} ({len(jobs)})</div>"
         )
-        # sort by company then title for readability
-        for j in sorted(jobs, key=lambda x: (x.company.lower(), x.title.lower())):
-            loc = escape(j.location_str) if j.location_str else "—"
-            meta_bits = [b for b in [loc, j.season, str(j.year) if j.year else None] if b]
-            meta = escape(" · ".join(meta_bits))
+        # Company first: it is the thing you scan for, so it gets the weight and
+        # its roles nest under it rather than repeating the name on every line.
+        for company, roles in by_company(jobs):
+            suffix = f" <span style='color:#64748b;font-weight:400'>({len(roles)} roles)</span>" if len(roles) > 1 else ""
             rows.append(
-                "<div style='font:14px system-ui,sans-serif;margin:6px 0;"
-                "padding:8px 10px;background:#fafafa;border-radius:6px'>"
-                f"<a href='{escape(j.url)}' style='color:#1a56db;font-weight:600;"
-                f"text-decoration:none'>{escape(j.title)}</a>"
-                f"<span style='color:#666'> — {escape(j.company)}</span><br>"
-                f"<span style='color:#888;font-size:12px'>{meta}</span>"
-                "</div>"
+                "<div style='margin:0 0 14px;padding:12px 14px;background:#f8fafc;"
+                "border:1px solid #e2e8f0;border-left:3px solid #1d4ed8;border-radius:6px'>"
+                f"<div style='font:700 15px {_FONT};color:#0f172a;margin-bottom:8px'>"
+                f"{escape(company)}{suffix}</div>"
+                + "".join(_job_line(j) for j in roles)
+                + "</div>"
             )
+
     body = "".join(rows)
     return (
-        "<div style='max-width:680px;margin:0 auto'>"
-        "<h1 style='font:700 22px system-ui,sans-serif;color:#111'>"
+        "<div style='max-width:680px;margin:0 auto;padding:8px'>"
+        f"<h1 style='font:700 20px {_FONT};color:#0f172a;margin:0 0 2px'>"
         f"{escape(headline)}</h1>"
         f"{body}"
-        "<p style='font:12px system-ui,sans-serif;color:#aaa;margin-top:32px'>"
-        "Generated by intern_pos_emailer. Tune sources/filters in <code>config/</code>.</p>"
+        f"<p style='font:12px {_FONT};color:#94a3b8;margin-top:32px;"
+        "border-top:1px solid #e2e8f0;padding-top:12px'>"
+        "Generated by intern_pos_emailer · tune sources and filters in <code>config/</code></p>"
         "</div>"
     )
 
@@ -136,10 +173,15 @@ def build_text(grouped: list[tuple[str, list[Job]]], total: int, faang: list[Job
     lines += [f"{total} new internship posting(s):", ""]
     for cat, jobs in grouped:
         lines.append(f"== {_CATEGORY_LABELS.get(cat, cat)} ({len(jobs)}) ==")
-        for j in sorted(jobs, key=lambda x: (x.company.lower(), x.title.lower())):
-            loc = j.location_str or "—"
-            lines.append(f"- {j.title} — {j.company} [{loc}]")
-            lines.append(f"  {j.url}")
+        # Mirrors the HTML: company heading, roles nested beneath it.
+        for company, roles in by_company(jobs):
+            lines.append(f"\n  {company.upper()}")
+            for j in roles:
+                meta = " · ".join(
+                    b for b in (j.location_str, j.season, str(j.year) if j.year else None) if b
+                )
+                lines.append(f"    - {j.title}" + (f"  [{meta}]" if meta else ""))
+                lines.append(f"      {j.url}")
         lines.append("")
     return "\n".join(lines)
 

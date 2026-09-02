@@ -125,14 +125,25 @@ def run(dry_run: bool, do_email: bool, do_sms: bool, limit: int | None, seed: bo
         save_state(config.state_path(), state)
         return 0
 
+    delivered = True
     if fresh:
         email_cfg = settings.get("email", {})
         sms_cfg = settings.get("sms", {})
         if do_email and email_cfg.get("enabled", True):
-            email_notify.send_email(fresh, secrets, email_cfg)
+            delivered = email_notify.send_email(fresh, secrets, email_cfg)
         if do_sms and sms_cfg.get("enabled", True) and len(fresh) >= sms_cfg.get("min_jobs", 1):
             body = sms_notify.build_body(len(fresh), sms_cfg.get("template", "{n} new internships"))
             sms_notify.send_sms(body, secrets)
+
+    if not delivered:
+        # send_email swallows SMTP errors (and missing creds) and returns False.
+        # Recording these jobs as seen anyway would drop them permanently — they
+        # would never be "new" again. Leave them unseen and exit non-zero so the
+        # run goes red and the next one re-sends them.
+        log.error("email delivery failed; leaving %d job(s) unseen for the next run", len(fresh))
+        state = prune(state, settings.get("prune_after_days", 120), today)
+        save_state(config.state_path(), state)
+        return 1
 
     # Persist: record the new jobs as seen, prune old entries.
     state = update_state(state, fresh, today)

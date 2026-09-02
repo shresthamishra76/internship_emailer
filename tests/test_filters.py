@@ -31,10 +31,12 @@ def test_quant_intern_classified_as_quant():
     assert j.category == "quant"
 
 
-def test_consulting_intern_kept():
+def test_consulting_intern_rejected():
+    # The consulting group is commented out in config/filters.yaml, and
+    # require_category is on, so a consulting-only title matches nothing and
+    # is dropped. Flip this back to the "kept" assertion if that group returns.
     j = _job("Technology Analyst Intern", ["Boston, MA"])
-    assert passes(j, F)
-    assert j.category == "consulting"
+    assert not passes(j, F)
 
 
 def test_fulltime_senior_role_rejected():

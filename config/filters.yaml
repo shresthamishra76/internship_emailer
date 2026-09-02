@@ -79,12 +79,15 @@ categories:
     - "infrastructure engineer"
     - "platform engineer"
     - "systems engineer"
-  consulting:
-    - consulting
-    - consultant
-    - "technology analyst"
-    - "tech consulting"
-    - "business analyst"   # consulting firms' entry tech/strategy track
+  # Consulting is off. With require_category: true below, a title that matches
+  # no group here is dropped, so commenting this out filters consulting roles
+  # out of the digest entirely. Uncomment to bring them back.
+  # consulting:
+  #   - consulting
+  #   - consultant
+  #   - "technology analyst"
+  #   - "tech consulting"
+  #   - "business analyst"   # consulting firms' entry tech/strategy track
 
 # If true, a job must match at least one category group to be kept.
 require_category: true

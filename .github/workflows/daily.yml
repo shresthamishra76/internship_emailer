@@ -2,10 +2,10 @@ name: Internship digest
 
 on:
   schedule:
-    # Every 15 minutes. GitHub throttles and drops scheduled runs under load,
-    # so treat this as "up to 4x/hour", not a guarantee — a missed slot just
+    # Every 10 minutes. GitHub throttles and drops scheduled runs under load,
+    # so treat this as "up to 6x/hour", not a guarantee — a missed slot just
     # means the next one picks up the same new postings.
-    - cron: "*/15 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     # Manual trigger from the Actions tab — use it to test or to keep the
     # schedule alive (GitHub disables crons after 60 days of repo inactivity).

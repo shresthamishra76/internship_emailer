@@ -21,13 +21,18 @@ role:
 
   # If a title contains any of these, it is rejected outright (full-time/senior roles).
   # NOTE: applied carefully — "intern" titles win even if "engineer" appears.
+  # NOTE: these are matched as plain substrings, so a term that appears inside a
+  # longer word rejects the whole posting. "lead" and "director" are removed for
+  # exactly that reason — they were killing "... Intern, Leadership Development
+  # Program" and "... Intern, Director's Fellowship". Safe to drop: is_internship
+  # only reaches this list after a title already matched an internship term, so
+  # "Lead Software Engineer" is still rejected for having no internship term.
+  # Don't add a short word here without checking it can't appear inside another.
   exclude_terms:
     - senior
     - staff
     - principal
-    - lead
     - manager
-    - director
     - "full-time" # only excluded when no internship term present (see code)
     - "full time"
 
@@ -59,11 +64,42 @@ categories:
     - trader
     - "systematic"
     - "algorithmic"
+  # AI/ML sits between quant and swe so "Machine Learning Engineer Intern" lands
+  # in ai rather than swe. Every term here is multi-word or distinctive on
+  # purpose: matching is plain substring, so a bare "ai" would hit "training",
+  # "maintenance" and "email", and a bare "ml" would hit "html".
+  ai:
+    - machine learning
+    - artificial intelligence
+    - deep learning
+    - computer vision
+    - natural language
+    - nlp
+    - generative ai
+    - genai
+    - large language model
+    - reinforcement learning
+    - ai engineer
+    - ai research
+    - ai platform
+    - ai infrastructure
+    - applied ai
+    - ai-first
+    - ai/ml
+    - ml engineer
+    - ml research
+    - applied scientist
+    - research scientist
+    - research engineer
   swe:
     - software engineer
     - software engineering
     - software developer
     - software development
+    # Bare "software" catches titles the specific phrases miss: truncated feeds
+    # ("Summer 2027 Intern - Software Enginee") and double-spaced titles
+    # ("Software  Engineering Intern").
+    - software
     - swe
     - "backend"
     - "back-end"
@@ -79,6 +115,37 @@ categories:
     - "infrastructure engineer"
     - "platform engineer"
     - "systems engineer"
+    # Infra / platform / SRE
+    - "infrastructure"
+    - "distributed systems"
+    - "site reliability"
+    - "devops"
+    - "sre"
+    - "cloud engineer"
+    - "cloud infrastructure"
+    - "supercomputing"
+    - "compiler"
+    # Security (engineering tracks)
+    - "cybersecurity"
+    - "security engineer"
+    - "information security"
+    - "application security"
+    # Embedded / systems
+    - "embedded"
+    - "firmware"
+    - "systems software"
+    # Mobile / web. "ios" alone is deliberately avoided — it matches "studios".
+    - "ios engineer"
+    - "ios developer"
+    - "android"
+    - "mobile engineer"
+    - "mobile developer"
+    - "web developer"
+    - "web engineer"
+    # Misc engineering titles that are SWE in practice
+    - "application development"
+    - "software integration"
+    - "forward deployed engineer"
   # Consulting is off. With require_category: true below, a title that matches
   # no group here is dropped, so commenting this out filters consulting roles
   # out of the digest entirely. Uncomment to bring them back.

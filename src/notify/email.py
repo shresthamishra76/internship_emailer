@@ -18,6 +18,7 @@ SMTP_PORT = 465
 
 _CATEGORY_LABELS = {
     "swe": "💻 Software Engineering",
+    "ai": "🤖 AI / Machine Learning",
     "quant": "📈 Quant / Trading",
     "consulting": "📊 Consulting",
     "other": "🧩 Other",

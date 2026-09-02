@@ -24,7 +24,7 @@ email:
   enabled: true
   subject_prefix: "[Intern Alert]"
   # group order in the digest (consulting is disabled in config/filters.yaml)
-  category_order: [swe, quant, other]
+  category_order: [swe, ai, quant, other]
   # When a NEW posting is from one of these companies, the digest goes URGENT:
   # subject + headline become "FAANG job out now" and the roles are banner-ed at
   # the top. Edit freely (e.g. add nvidia, microsoft).

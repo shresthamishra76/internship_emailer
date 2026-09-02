@@ -88,3 +88,32 @@ def test_coop_kept():
 def test_remote_kept():
     j = _job("Software Engineer Intern", ["Remote"])
     assert passes(j, F)
+
+
+def test_ml_and_ai_titles_classified_as_ai():
+    for title in ("Machine Learning Intern", "AI Research Intern", "Research Engineer Intern"):
+        j = _job(title, ["Austin, TX"])
+        assert passes(j, F), title
+        assert j.category == "ai", title
+
+
+def test_infra_security_embedded_kept_as_swe():
+    for title in ("Firmware Intern", "Cybersecurity Intern",
+                  "Site Reliability Engineer Intern", "Software Intern"):
+        j = _job(title, ["Austin, TX"])
+        assert passes(j, F), title
+        assert j.category == "swe", title
+
+
+def test_seniority_terms_do_not_match_inside_words():
+    # "lead" in "Leadership" and "director" in "Director's" used to reject these.
+    for title in ("Software Engineer Intern, Leadership Development Program",
+                  "Software Engineer Intern, Director's Fellowship"):
+        assert passes(_job(title, ["Austin, TX"]), F), title
+
+
+def test_non_software_engineering_disciplines_still_rejected():
+    # The category list deliberately has no bare "engineer"/"engineering" term.
+    for title in ("Mechanical Engineering Intern", "Civil Engineering Intern",
+                  "Hardware Engineer Intern", "Finance Intern", "Supply Chain Intern"):
+        assert not passes(_job(title, ["Austin, TX"]), F), title

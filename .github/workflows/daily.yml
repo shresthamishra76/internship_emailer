@@ -2,16 +2,16 @@ name: Internship digest
 
 on:
   schedule:
-    # TEMPORARY — diagnostic, not the intended cadence. The goal is every 10
-    # minutes, but no scheduled run has ever fired on this repo: ~26 slots
-    # missed across */15, */10 and an odd-minute list, both as a fork and
-    # detached, with the API reporting zero schedule events all-time.
+    # Every 10 minutes, on odd minutes rather than "*/10" — "*/10" fires on :00
+    # and GitHub documents the start of every hour as its heaviest load window,
+    # where "some queued jobs may be dropped".
     #
-    # Every cron that demonstrably works on this account is low-frequency
-    # (daily, */6h, */12h) on a repo that is months old. This matches that
-    # shape to find out whether GitHub is refusing the schedule outright or
-    # just deprioritising an aggressive one. Step back up once it fires.
-    - cron: "17 * * * *"
+    # Expect to lose slots. The first scheduled run on this repo only landed
+    # ~9.5h after it was created, and early hourly slots fired roughly 1 in 3,
+    # up to 30 minutes late. That is fine here: dedup via data/seen_jobs.json
+    # means a missed slot costs nothing — the next run reports the same new
+    # postings. A lossy fast cron still beats a reliable slow one.
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
     # Manual trigger from the Actions tab — use it to test or to keep the
     # schedule alive (GitHub disables crons after 60 days of repo inactivity).

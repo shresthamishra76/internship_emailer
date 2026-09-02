@@ -1,10 +1,11 @@
-name: Daily internship digest
+name: Internship digest
 
 on:
   schedule:
-    # 13:00 UTC ~= 9:00 AM US Eastern (8:00 AM during standard time).
-    # GitHub cron can be delayed under load; that's fine for a daily digest.
-    - cron: "0 13 * * *"
+    # Every 15 minutes. GitHub throttles and drops scheduled runs under load,
+    # so treat this as "up to 4x/hour", not a guarantee — a missed slot just
+    # means the next one picks up the same new postings.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     # Manual trigger from the Actions tab — use it to test or to keep the
     # schedule alive (GitHub disables crons after 60 days of repo inactivity).
@@ -17,8 +18,10 @@ on:
 permissions:
   contents: write   # needed to commit the updated data/seen_jobs.json
 
+# One digest at a time. A run takes ~60s, well inside the 15-minute window, but
+# if a source hangs the next run queues rather than racing the state file.
 concurrency:
-  group: daily-internship-digest
+  group: internship-digest
   cancel-in-progress: false
 
 jobs:
@@ -58,12 +61,39 @@ jobs:
       - name: Commit updated state
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet -- data/seen_jobs.json; then
+
+          if git diff --quiet -- data/seen_jobs.json; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+
+          git add data/seen_jobs.json
+          git commit -m "chore: update seen jobs state [skip ci]"
+
+          # At a 15-minute cadence this races the sync-upstream job's push, so a
+          # plain `git push` loses to a non-fast-forward often enough to matter.
+          # On rejection, rebuild the commit on top of whatever landed, keeping
+          # our state file — it is a superset of what any other writer has, and
+          # losing entries here means re-emailing jobs already sent.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); replaying our state onto origin/main."
+            cp data/seen_jobs.json "${RUNNER_TEMP}/seen_jobs.json"
+            git fetch origin main
+            git reset --hard origin/main
+            cp "${RUNNER_TEMP}/seen_jobs.json" data/seen_jobs.json
+            if git diff --quiet -- data/seen_jobs.json; then
+              echo "State already current on origin/main; nothing to push."
+              exit 0
+            fi
             git add data/seen_jobs.json
             git commit -m "chore: update seen jobs state [skip ci]"
-            git push
-          else
-            echo "No state changes to commit."
-          fi
+          done
+
+          echo "::error::Could not push updated state after 3 attempts."
+          exit 1

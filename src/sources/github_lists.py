@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -91,9 +91,10 @@ def _map_listing(raw: dict[str, Any], source_name: str) -> Job | None:
 
 
 class GithubListSource(Source):
-    def __init__(self, name: str, url: str):
+    def __init__(self, name: str, url: str, max_age_days: int = 0):
         self.name = f"githublist:{name}"
         self.url = url
+        self.max_age_days = max_age_days
 
     def fetch(self, session: requests.Session) -> list[Job]:
         data = request_json(session, "GET", self.url)
@@ -105,11 +106,21 @@ class GithubListSource(Source):
         if not isinstance(data, list):
             log.warning("%s: unexpected JSON shape", self.name)
             return []
+        cutoff = None
+        if self.max_age_days and self.max_age_days > 0:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.max_age_days)).date().isoformat()
         jobs: list[Job] = []
+        skipped_old = 0
         for raw in data:
             job = _map_listing(raw, self.name)
-            if job and job.active:
-                jobs.append(job)
+            if not (job and job.active):
+                continue
+            if cutoff and job.posted_date and job.posted_date < cutoff:
+                skipped_old += 1
+                continue
+            jobs.append(job)
+        if skipped_old:
+            log.info("%s: skipped %d listings posted before %s", self.name, skipped_old, cutoff)
         return jobs
 
 
@@ -185,12 +196,13 @@ def build_sources() -> list[Source]:
     if not cfg.get("enabled", True):
         return []
     sources: list[Source] = []
+    max_age = int(cfg.get("max_age_days", 0) or 0)
     for entry in cfg.get("lists", []) or []:
         if entry.get("enabled", True) is False:
             continue
         url = entry.get("url")
         if url:
-            sources.append(GithubListSource(entry.get("name") or "list", url))
+            sources.append(GithubListSource(entry.get("name") or "list", url, max_age))
     for entry in cfg.get("readme_tables", []) or []:
         if entry.get("enabled", True) is False:
             continue

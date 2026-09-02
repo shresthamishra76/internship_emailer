@@ -10,9 +10,22 @@
 
 enabled: true
 
+# Ignore JSON listings whose `date_posted` is older than this many days. The
+# canonical list carries every posting of the cycle (~2.7k), and switching to
+# it (or a state prune) would otherwise re-surface months-old roles as "new".
+# Listings without a date_posted are kept.
+max_age_days: 14
+
 # JSON lists (SimplifyJobs-style listings.json schema).
 lists:
+  # Canonical list. Simplify's bot pushes listings.json every 30 min, at :01
+  # and :31 UTC; raw.githubusercontent.com caches for 5 min, so a poll at :07
+  # or :37 always sees the latest push.
+  - name: simplifyjobs-summer2027
+    url: https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json
+  # Fork of the above; went stale 2026-08-23. Kept off — same job ids, no new data.
   - name: vanshb03-summer2027
+    enabled: false
     url: https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json
 
 # README markdown-table lists (Company | Role | Location | Posted | Visa | Apply).

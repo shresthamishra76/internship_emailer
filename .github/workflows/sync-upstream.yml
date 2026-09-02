@@ -1,0 +1,72 @@
+name: Sync with upstream
+
+# Keeps this fork's code current with vatsalm30/internship_emailer.
+#
+# The one file that predictably conflicts is data/seen_jobs.json: upstream's
+# daily job commits its own state, and so does ours. Ours is the one that
+# matters (it tracks what *we* have already been emailed), so a conflict there
+# is resolved in our favour. Any other conflict means upstream changed code or
+# config that we also changed locally — the merge is aborted and the run fails
+# so it gets a human look instead of a silent bad merge.
+
+on:
+  schedule:
+    # 11:30 UTC — ~90 min before the digest job at 13:00 UTC, so a run always
+    # uses the latest upstream scrapers/company tokens.
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream/main
+        id: merge
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/vatsalm30/internship_emailer.git
+          git fetch --no-tags upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already contains everything from upstream/main."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge --no-edit upstream/main; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ "$conflicts" = "data/seen_jobs.json" ]; then
+            echo "Expected state-file conflict; keeping our seen_jobs.json."
+            git checkout --ours data/seen_jobs.json
+            git add data/seen_jobs.json
+            git commit --no-edit
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git merge --abort
+          echo "::error::Upstream merge conflicts need manual resolution in:"
+          echo "$conflicts"
+          exit 1
+
+      - name: Push merged history
+        if: steps.merge.outputs.changed == 'true'
+        run: git push origin HEAD:main

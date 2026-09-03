@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .models import Job
+from .models import Job, normalize_title
 
 log = logging.getLogger(__name__)
 
@@ -35,15 +35,42 @@ def save_state(path: Path, state: dict[str, dict]) -> None:
         fh.write("\n")
 
 
+def _role_key(company: str, title: str) -> tuple[str, str]:
+    return ((company or "").strip().lower(), normalize_title(title))
+
+
 def new_jobs(jobs: list[Job], state: dict[str, dict]) -> list[Job]:
-    """Jobs whose id is not already in state (deduped within the batch too)."""
-    seen_now: set[str] = set()
+    """Jobs not already notified.
+
+    Primary key is job_id (company + title + url). A second, looser key of
+    company + title catches the same role reaching us through two aggregators
+    with different URLs, or re-listed under a fresh URL: it is skipped if that
+    role was already notified (present in state), or if another *source* in
+    this batch already contributed it. Same-source rows sharing a title are
+    kept — those are usually distinct reqs (different sites/teams).
+    """
+    seen_ids: set[str] = set()
+    notified_roles = {
+        _role_key(meta.get("company", ""), meta.get("title", ""))
+        for meta in state.values()
+        if isinstance(meta, dict)
+    }
+    batch_roles: dict[tuple[str, str], str] = {}
     out: list[Job] = []
     for job in jobs:
         jid = job.job_id
-        if jid in state or jid in seen_now:
+        if jid in state or jid in seen_ids:
             continue
-        seen_now.add(jid)
+        role = _role_key(job.company, job.title)
+        if role in notified_roles:
+            log.debug("skip %s @ %s: role already notified under another url", job.title, job.company)
+            continue
+        first_src = batch_roles.get(role)
+        if first_src is not None and first_src != job.source:
+            log.debug("skip %s @ %s: same role already in batch from %s", job.title, job.company, first_src)
+            continue
+        batch_roles.setdefault(role, job.source)
+        seen_ids.add(jid)
         out.append(job)
     return out
 

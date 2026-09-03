@@ -54,3 +54,28 @@ def test_job_id_stable_and_case_insensitive():
     a = _job("Acme", "SWE Intern", "https://a.com/1")
     b = _job("acme", "swe  intern", "https://a.com/1")  # case + extra space
     assert a.job_id == b.job_id
+
+
+def _src_job(company, title, url, source):
+    return Job(company=company, title=title, url=url, source=source)
+
+
+def test_new_jobs_skips_role_already_notified_under_other_url():
+    old = _job("Acme", "SWE Intern", "https://a.com/1")
+    state = {old.job_id: {"first_seen": "2026-06-01", "company": "Acme", "title": "SWE Intern"}}
+    relisted = _job("acme", "swe intern", "https://jobs.acme.com/relisted")
+    assert dedup.new_jobs([relisted], state) == []
+
+
+def test_new_jobs_collapses_same_role_across_sources():
+    a = _src_job("Acme", "SWE Intern", "https://a.com/1?utm=simplify", "githublist:simplify")
+    b = _src_job("Acme", "SWE Intern", "https://a.com/1", "githublist:zapply")
+    out = dedup.new_jobs([a, b], {})
+    assert out == [a]
+
+
+def test_new_jobs_keeps_same_role_from_one_source():
+    # Same title, different reqs (sites/teams) from a single source stay separate.
+    a = _src_job("Acme", "SWE Intern", "https://a.com/boston", "greenhouse")
+    b = _src_job("Acme", "SWE Intern", "https://a.com/austin", "greenhouse")
+    assert dedup.new_jobs([a, b], {}) == [a, b]

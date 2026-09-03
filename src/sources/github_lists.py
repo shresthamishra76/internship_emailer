@@ -20,6 +20,7 @@ The canonical schema (SimplifyJobs) looks like:
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -33,6 +34,48 @@ from .base import Source, request_json, request_text
 log = logging.getLogger(__name__)
 
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
+_RAW_URL_RE = re.compile(
+    r"^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$"
+)
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def split_raw_url(url: str) -> tuple[str, str, str, str] | None:
+    """(owner, repo, ref, path) for a raw.githubusercontent.com URL, else None."""
+    m = _RAW_URL_RE.match(url or "")
+    return m.groups() if m else None  # type: ignore[return-value]
+
+
+def pin_raw_url(session: requests.Session, url: str) -> str:
+    """Rewrite a branch-ref raw URL to the branch's current commit SHA.
+
+    raw.githubusercontent.com caches branch URLs for 5 minutes, so a poll
+    right after an upstream push can see the previous file. A SHA URL is
+    immutable, so it is never stale. One tiny API call per source; uses
+    GITHUB_TOKEN when set (5000/h) — unauthenticated is 60/h per IP, which
+    shared Actions runners can exhaust. On any failure return the URL as-is.
+    """
+    parts = split_raw_url(url)
+    if not parts:
+        return url
+    owner, repo, ref, path = parts
+    if _SHA_RE.match(ref):
+        return url
+    headers = {"Accept": "application/vnd.github.sha", "User-Agent": "intern-pos-emailer"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    api = f"https://api.github.com/repos/{owner}/{repo}/commits/{ref}"
+    try:
+        resp = session.get(api, headers=headers, timeout=10)
+        sha = resp.text.strip()
+        if resp.status_code == 200 and _SHA_RE.match(sha):
+            log.info("%s/%s@%s -> %s", owner, repo, ref, sha[:7])
+            return f"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}"
+        log.warning("could not resolve %s/%s@%s (%s); using branch URL", owner, repo, ref, resp.status_code)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not resolve %s/%s@%s (%s); using branch URL", owner, repo, ref, exc)
+    return url
 
 
 def _to_iso(ts: Any) -> str | None:
@@ -91,13 +134,15 @@ def _map_listing(raw: dict[str, Any], source_name: str) -> Job | None:
 
 
 class GithubListSource(Source):
-    def __init__(self, name: str, url: str, max_age_days: int = 0):
+    def __init__(self, name: str, url: str, max_age_days: int = 0, pin: bool = True):
         self.name = f"githublist:{name}"
         self.url = url
         self.max_age_days = max_age_days
+        self.pin = pin
 
     def fetch(self, session: requests.Session) -> list[Job]:
-        data = request_json(session, "GET", self.url)
+        url = pin_raw_url(session, self.url) if self.pin else self.url
+        data = request_json(session, "GET", url)
         if data is None:
             return []
         # listings.json is usually a top-level array; some forks wrap it.
@@ -173,12 +218,14 @@ def _parse_table_row(line: str, source_name: str) -> Job | None:
 
 
 class GithubReadmeTableSource(Source):
-    def __init__(self, name: str, url: str):
+    def __init__(self, name: str, url: str, pin: bool = True):
         self.name = f"githublist:{name}"
         self.url = url
+        self.pin = pin
 
     def fetch(self, session) -> list[Job]:
-        text = request_text(session, self.url)
+        url = pin_raw_url(session, self.url) if self.pin else self.url
+        text = request_text(session, url)
         if not text:
             return []
         jobs: list[Job] = []
@@ -197,16 +244,17 @@ def build_sources() -> list[Source]:
         return []
     sources: list[Source] = []
     max_age = int(cfg.get("max_age_days", 0) or 0)
+    pin = bool(cfg.get("pin_to_commit", True))
     for entry in cfg.get("lists", []) or []:
         if entry.get("enabled", True) is False:
             continue
         url = entry.get("url")
         if url:
-            sources.append(GithubListSource(entry.get("name") or "list", url, max_age))
+            sources.append(GithubListSource(entry.get("name") or "list", url, max_age, pin))
     for entry in cfg.get("readme_tables", []) or []:
         if entry.get("enabled", True) is False:
             continue
         url = entry.get("url")
         if url:
-            sources.append(GithubReadmeTableSource(entry.get("name") or "table", url))
+            sources.append(GithubReadmeTableSource(entry.get("name") or "table", url, pin))
     return sources

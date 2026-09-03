@@ -16,11 +16,17 @@ enabled: true
 # Listings without a date_posted are kept.
 max_age_days: 14
 
+# Resolve each branch URL to the branch's current commit SHA before fetching.
+# raw.githubusercontent.com caches branch URLs for 5 minutes; a SHA URL is
+# immutable, so a poll right after an upstream push never sees the old file.
+# Costs one small API call per source (GITHUB_TOKEN is used when present).
+pin_to_commit: true
+
 # JSON lists (SimplifyJobs-style listings.json schema).
 lists:
-  # Canonical list. Simplify's bot pushes listings.json every 30 min, at :01
-  # and :31 UTC; raw.githubusercontent.com caches for 5 min, so a poll at :07
-  # or :37 always sees the latest push.
+  # Canonical list. Simplify's bot pushes listings.json every 30 min; over 60
+  # pushes the commit landed between :00:59 and :02:06 past each :00/:30 UTC.
+  # With pin_to_commit, a poll at :04/:34 sees it ~2 min after it lands.
   - name: simplifyjobs-summer2027
     url: https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json
   # Fork of the above; went stale 2026-08-23. Kept off — same job ids, no new data.

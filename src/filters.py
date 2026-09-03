@@ -39,6 +39,23 @@ def _contains_any(text: str, terms: Iterable[str]) -> bool:
     return any(term in text for term in terms)
 
 
+@lru_cache(maxsize=32)
+def _word_regex(terms: tuple[str, ...]):
+    """Match any term as a whole word (plural allowed).
+
+    Plain substring matching let "intern" pass "Internal Applications" and
+    "International", and "coop" pass "Cooperative AI" — full-time roles that
+    then went out in the digest.
+    """
+    alts = "|".join(re.escape(t) for t in terms)
+    return re.compile(rf"(?<![a-z])(?:{alts})s?(?![a-z])")
+
+
+def _contains_word(text: str, terms: Iterable[str]) -> bool:
+    terms = tuple(t for t in terms if t)
+    return bool(terms) and _word_regex(terms).search(text) is not None
+
+
 @lru_cache(maxsize=8)
 def _loc_regex(terms: tuple[str, ...]):
     """Compile location terms into one alternation that won't match inside a
@@ -78,7 +95,7 @@ def detect_year(job: Job) -> Optional[int]:
 
 def is_internship(title_lc: str, role_cfg: dict) -> bool:
     intern_terms = [t.lower() for t in role_cfg.get("internship_terms", [])]
-    if not _contains_any(title_lc, intern_terms):
+    if not _contains_word(title_lc, intern_terms):
         return False
     # Hard seniority excludes never co-occur with a genuine internship.
     hard_excludes = [

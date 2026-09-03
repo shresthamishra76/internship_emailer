@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from . import config
@@ -21,7 +23,7 @@ from .filters import apply_filters
 from .models import Job
 from .notify import email as email_notify
 from .notify import sms as sms_notify
-from .sources.base import make_session
+from .sources.base import Source, make_session
 from .sources.registry import build_all_sources
 
 log = logging.getLogger("intern_pos_emailer")
@@ -35,15 +37,36 @@ def _setup_logging() -> None:
     )
 
 
+def collect_from(sources: list[Source], workers: int = 1) -> list[Job]:
+    """Fetch every source, `workers` at a time. Result order follows `sources`.
+
+    Fetching 38 sources one after another took ~42 s of a ~65 s run; the slow
+    ones (Workday pagination) dominate, so running them side by side brings the
+    whole collection down to roughly the slowest single source. Each thread
+    gets its own requests.Session — Session is not guaranteed thread-safe.
+    """
+    if workers <= 1 or len(sources) <= 1:
+        session = make_session()
+        return [j for src in sources for j in src.safe_fetch(session)]
+
+    local = threading.local()
+
+    def _fetch(src: Source) -> list[Job]:
+        if not hasattr(local, "session"):
+            local.session = make_session()
+        return src.safe_fetch(local.session)
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fetch") as pool:
+        return [j for batch in pool.map(_fetch, sources) for j in batch]
+
+
 def collect_jobs(limit: int | None = None) -> list[Job]:
     sources = build_all_sources()
     if limit:
         sources = sources[:limit]
-    session = make_session()
-    all_jobs: list[Job] = []
-    for src in sources:
-        all_jobs.extend(src.safe_fetch(session))
-    log.info("collected %d raw jobs from %d sources", len(all_jobs), len(sources))
+    workers = int(config.settings().get("http", {}).get("concurrency", 1) or 1)
+    all_jobs = collect_from(sources, workers)
+    log.info("collected %d raw jobs from %d sources (%d workers)", len(all_jobs), len(sources), workers)
     return all_jobs
 
 

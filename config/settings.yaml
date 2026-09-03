@@ -15,6 +15,9 @@ http:
   user_agent: "intern-pos-emailer/1.0 (+https://github.com/) personal job alerter"
   # polite delay between requests to the same host (seconds)
   per_request_delay: 0.3
+  # sources fetched at the same time (1 = one after another). The run is
+  # bounded by the slowest source instead of the sum of all of them.
+  concurrency: 8
 
 # Per-source cap on number of jobs pulled (0 = unlimited). Safety valve.
 max_jobs_per_source: 0

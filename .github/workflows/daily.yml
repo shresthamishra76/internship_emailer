@@ -37,12 +37,22 @@ jobs:
           ref: main
 
       - name: Set up Python
+        id: py
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
+
+      # Cache the installed site-packages, not just pip's wheel cache: a cache
+      # hit skips `pip install` entirely (~13 s of a ~65 s run).
+      - name: Restore installed dependencies
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: pydeps-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
+        if: steps.deps.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
 
       - name: Run bot

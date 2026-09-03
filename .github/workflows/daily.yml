@@ -60,11 +60,35 @@ jobs:
           # TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
           # SMS_TO: ${{ secrets.SMS_TO }}
         run: |
+          set -o pipefail
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            python -m src.main --dry-run
+            python -m src.main --dry-run 2>&1 | tee "$RUNNER_TEMP/bot.log"
           else
-            python -m src.main
+            python -m src.main 2>&1 | tee "$RUNNER_TEMP/bot.log"
           fi
+
+      # Shows the outcome on the run's page (Actions -> run -> Summary) so you
+      # never have to open the log to learn whether anything was new.
+      - name: Job summary
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/bot.log"
+          [ -f "$log" ] || { echo "### Digest: bot did not start" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          new=$(grep -oE "[0-9]+ are new" "$log" | grep -oE "^[0-9]+" || echo "?")
+          if grep -q "email sent" "$log"; then
+            echo "### 📬 $new new posting(s) — email sent" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q "no new jobs" "$log"; then
+            echo "### 💤 0 new postings — nothing sent" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q "dry-run" "$log"; then
+            echo "### 🧪 dry run — $new would be new" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ⚠️ run did not reach the send step — check the log" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            grep -E "collected [0-9]+ raw jobs|jobs passed filters|skipped [0-9]+ listings|@[a-z]+ -> [0-9a-f]{7}|WARNING|ERROR" "$log" \
+              | sed -E 's/^[0-9:]+ (INFO|WARNING|ERROR) [a-z_.]+: /- /' | head -40
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit updated state
         if: ${{ github.event.inputs.dry_run != 'true' }}

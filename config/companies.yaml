@@ -47,11 +47,14 @@ greenhouse:
 
 lever:
   - { company: Palantir,           token: palantir }
-  - { company: Plaid,              token: plaid }
-  - { company: Netflix,            token: netflix }
+  # Plaid moved from Lever to Ashby (see ashby: below). Netflix runs its own
+  # Eightfold portal (explore.jobs.netflix.net), which no source here speaks;
+  # its roles still arrive through the SimplifyJobs list.
+  - { company: Netflix,            token: netflix, enabled: false }
 
 ashby:
   - { company: OpenAI,             token: openai }
+  - { company: Plaid,              token: plaid }
   - { company: Ramp,               token: ramp }
   - { company: Notion,             token: notion }
   - { company: Linear,             token: linear }

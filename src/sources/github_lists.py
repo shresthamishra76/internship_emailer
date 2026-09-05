@@ -171,8 +171,9 @@ class GithubListSource(Source):
 
 # --- README markdown-table lists (e.g. zapplyjobs) -------------------------
 # Rows look like: | **Company** | Role… | Location | 14m | visa | [Apply](url) |
-# Titles are often truncated with "…"; the apply URL and company come through
-# fully, and dedup keys on the URL, so truncation is harmless.
+# Titles are often truncated with "…" and later un-truncated upstream; the
+# apply URL comes through fully and dedup keys on the canonical URL alone
+# (see models.job_id_for), so title churn does not re-alert.
 
 _APPLY_URL_RE = re.compile(r"\]\((https?://[^\s)]+)\)")
 _LINK_TEXT_RE = re.compile(r"\[([^\]]+)\]\(")

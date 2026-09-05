@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .models import Job, normalize_title
+from .models import Job, job_id_for, normalize_title
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +22,34 @@ def load_state(path: Path) -> dict[str, dict]:
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, dict) else {}
+        return _migrate(data) if isinstance(data, dict) else {}
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("could not read state %s: %s — starting fresh", path, exc)
         return {}
+
+
+def _migrate(state: dict[str, dict]) -> dict[str, dict]:
+    """Re-key entries written under the old company|title|url id scheme.
+
+    Recomputes each entry's id from its stored fields. Entries that collapse
+    onto one id (the same URL notified under several company/title spellings)
+    keep the earliest first_seen. Idempotent: current-scheme keys map to
+    themselves.
+    """
+    out: dict[str, dict] = {}
+    moved = 0
+    for jid, meta in state.items():
+        if not isinstance(meta, dict):
+            continue
+        new_id = job_id_for(meta.get("company", ""), meta.get("title", ""), meta.get("url", ""))
+        if new_id != jid:
+            moved += 1
+        prev = out.get(new_id)
+        if prev is None or (meta.get("first_seen") or "9999") < (prev.get("first_seen") or "9999"):
+            out[new_id] = meta
+    if moved:
+        log.info("migrated %d state entries to url-keyed ids (%d -> %d entries)", moved, len(state), len(out))
+    return out
 
 
 def save_state(path: Path, state: dict[str, dict]) -> None:

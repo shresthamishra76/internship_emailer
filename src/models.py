@@ -6,6 +6,7 @@ import hashlib
 import re
 from datetime import date
 from typing import Optional
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,49 @@ Category = str  # one of: "swe", "quant", "consulting", "other"
 def normalize_title(title: str) -> str:
     """Lowercase + collapse whitespace, for stable IDs and matching."""
     return re.sub(r"\s+", " ", (title or "").strip().lower())
+
+
+# Workday posting slugs end in `_R56028` (the requisition) or `_R56028-1`
+# (the N-th posting of that requisition, e.g. the same req on the University
+# site and the External site). Same req == same job, so the suffix is dropped.
+_WORKDAY_POSTING_RE = re.compile(r"^(.*_[A-Za-z]*\d+)-\d+$")
+
+
+def canonical_url(url: str) -> str:
+    """Normalize a posting URL so the same listing hashes the same everywhere.
+
+    Aggregators decorate URLs differently (utm params, trailing slashes, host
+    case) while pointing at one posting. Scheme and host are lowercased; query
+    and fragment are dropped; a trailing slash is stripped. On Workday hosts the
+    per-site posting suffix is collapsed onto the requisition id.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parts = urlsplit(raw)
+    if not parts.netloc:
+        return raw.rstrip("/")
+    path = parts.path.rstrip("/")
+    host = parts.netloc.lower()
+    if host.endswith("myworkdayjobs.com"):
+        m = _WORKDAY_POSTING_RE.match(path)
+        if m:
+            path = m.group(1)
+    return f"{parts.scheme.lower()}://{host}{path}"
+
+
+def job_id_for(company: str, title: str, url: str) -> str:
+    """Stable dedup id. Keyed on the canonical URL alone when one exists.
+
+    Company and title must not participate: the same posting reaches us via
+    several aggregators that label the company differently ("Cadence",
+    "Cadence (University)", "Cadence Design Systems") and truncate or rewrite
+    titles, and each spelling drift used to mint a fresh id -> a repeat alert.
+    Company + title is the fallback only for listings without a URL.
+    """
+    canon = canonical_url(url)
+    basis = canon if canon else f"{(company or '').strip().lower()}|{normalize_title(title)}"
+    return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
 
 
 class Job(BaseModel):
@@ -44,9 +88,8 @@ class Job(BaseModel):
 
     @property
     def job_id(self) -> str:
-        """Stable id used for dedup. Based on company + normalized title + url."""
-        basis = f"{self.company.strip().lower()}|{normalize_title(self.title)}|{self.url.strip()}"
-        return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
+        """Stable id used for dedup. See `job_id_for`."""
+        return job_id_for(self.company, self.title, self.url)
 
 
 class ApplicantProfile(BaseModel):

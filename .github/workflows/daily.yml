@@ -1,10 +1,6 @@
 name: sync
 
 on:
-  # No `schedule:` on purpose. The clock is cron-job.org hitting the
-  # internship-emailer-cron Worker's /tick, which dispatches this workflow.
-  # GitHub's scheduler was tried first: 2 runs in ~12h, 30 min and 3h42m late.
-  # Keeping it as a "free fallback" produced double runs, so it is gone.
   workflow_dispatch:
     # Manual trigger from the Actions tab, and what /tick calls.
     inputs:
@@ -16,10 +12,8 @@ on:
 permissions:
   contents: write   # needed to commit the updated data/seen_jobs.json
 
-# One digest at a time. A run takes ~60s, well inside the 15-minute window, but
-# if a source hangs the next run queues rather than racing the state file.
 concurrency:
-  group: internship-digest
+  group: sync
   cancel-in-progress: false
 
 jobs:
@@ -29,11 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Branch tip, NOT the dispatch-time SHA. When two dispatches land
-          # seconds apart the concurrency group queues the second one, but
-          # the default checkout would still use the SHA captured at dispatch
-          # time — before the first run pushed its seen_jobs.json — so the
-          # second run re-emailed the same postings (2026-09-02, 23:30 UTC).
           ref: main
 
       - name: Set up Python
@@ -42,8 +31,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Cache the installed site-packages, not just pip's wheel cache: a cache
-      # hit skips `pip install` entirely (~13 s of a ~65 s run).
       - name: Restore installed dependencies
         id: deps
         uses: actions/cache@v4
@@ -55,50 +42,19 @@ jobs:
         if: steps.deps.outputs.cache-hit != 'true'
         run: pip install -r requirements.txt
 
-      - name: Run bot
+      - name: Run
         env:
-          # Lets github_lists resolve branch -> commit SHA at 5000 req/h
-          # instead of the 60/h unauthenticated limit shared by runner IPs.
           GITHUB_TOKEN: ${{ github.token }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          # SMS is off by default. If you enable it in config/settings.yaml, also
-          # add these secrets:
-          # TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          # TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          # TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
-          # SMS_TO: ${{ secrets.SMS_TO }}
         run: |
           set -o pipefail
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            python -m src.main --dry-run 2>&1 | tee "$RUNNER_TEMP/bot.log"
+            python -m src.main --dry-run > "$RUNNER_TEMP/bot.log" 2>&1
           else
-            python -m src.main 2>&1 | tee "$RUNNER_TEMP/bot.log"
+            python -m src.main > "$RUNNER_TEMP/bot.log" 2>&1
           fi
-
-      # Shows the outcome on the run's page (Actions -> run -> Summary) so you
-      # never have to open the log to learn whether anything was new.
-      - name: Job summary
-        if: always()
-        run: |
-          log="$RUNNER_TEMP/bot.log"
-          [ -f "$log" ] || { echo "### Digest: bot did not start" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
-          new=$(grep -oE "[0-9]+ are new" "$log" | grep -oE "^[0-9]+" || echo "?")
-          if grep -q "email sent" "$log"; then
-            echo "### 📬 $new new posting(s) — email sent" >> "$GITHUB_STEP_SUMMARY"
-          elif grep -q "no new jobs" "$log"; then
-            echo "### 💤 0 new postings — nothing sent" >> "$GITHUB_STEP_SUMMARY"
-          elif grep -q "dry-run" "$log"; then
-            echo "### 🧪 dry run — $new would be new" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### ⚠️ run did not reach the send step — check the log" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          {
-            echo
-            grep -E "collected [0-9]+ raw jobs|jobs passed filters|skipped [0-9]+ listings|@[a-z]+ -> [0-9a-f]{7}|WARNING|ERROR" "$log" \
-              | sed -E 's/^[0-9:]+ (INFO|WARNING|ERROR) [a-z_.]+: /- /' | head -40
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit updated state
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -113,13 +69,8 @@ jobs:
           fi
 
           git add data/seen_jobs.json
-          git commit -m "chore: update seen jobs state [skip ci]"
+          git commit -m "chore: sync [skip ci]"
 
-          # At a 15-minute cadence this races the sync-upstream job's push, so a
-          # plain `git push` loses to a non-fast-forward often enough to matter.
-          # On rejection, rebuild the commit on top of whatever landed, keeping
-          # our state file — it is a superset of what any other writer has, and
-          # losing entries here means re-emailing jobs already sent.
           for attempt in 1 2 3; do
             if git push origin HEAD:main; then
               exit 0
@@ -134,7 +85,7 @@ jobs:
               exit 0
             fi
             git add data/seen_jobs.json
-            git commit -m "chore: update seen jobs state [skip ci]"
+            git commit -m "chore: sync [skip ci]"
           done
 
           echo "::error::Could not push updated state after 3 attempts."

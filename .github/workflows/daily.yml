@@ -1,4 +1,4 @@
-name: Internship digest
+name: sync
 
 on:
   # No `schedule:` on purpose. The clock is cron-job.org hitting the
